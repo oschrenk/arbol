@@ -1,0 +1,85 @@
+version: '3'
+vars:
+  APP_NAME: "arbol"
+  RELEASE_DIR: "./.release"
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+  COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo "unknown"
+  BUILD_DATE:
+    sh: date -u +"%Y-%m-%dT%H:%M:%SZ"
+  LDFLAGS: -s -w -X github.com/oschrenk/arbol/internal/commands.Version={{.VERSION}} -X github.com/oschrenk/arbol/internal/commands.Commit={{.COMMIT}} -X github.com/oschrenk/arbol/internal/commands.BuildDate={{.BUILD_DATE}}
+tasks:
+  build:
+    desc: Build the binary
+    cmds:
+      - go build -ldflags "{{.LDFLAGS}}" -o bin/{{.APP_NAME}} ./cmd/arbol
+  test:
+    desc: Run tests
+    cmds:
+      - go test -v ./...
+  run:
+    desc: Run the application
+    cmds:
+      - go run ./cmd/arbol {{.CLI_ARGS}}
+  tidy:
+    desc: Tidy dependencies
+    cmds:
+      - go mod tidy
+  lint:
+    desc: Run linters
+    cmds:
+      - go vet ./...
+      - go fmt ./...
+    deps: [tidy]
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -rf bin/
+      - rm -rf {{.RELEASE_DIR}}
+  install:
+    desc: Install binary and fish completion
+    cmds:
+      - go install -ldflags "{{.LDFLAGS}}" ./cmd/arbol
+      - mkdir -p ~/.config/fish/completions
+      - arbol completion fish > ~/.config/fish/completions/arbol.fish
+      - echo "Installed arbol to $(go env GOPATH)/bin/arbol"
+      - echo "Installed fish completion to ~/.config/fish/completions/arbol.fish"
+  uninstall:
+    desc: Uninstall binary and fish completion
+    cmds:
+      - rm -f $(go env GOPATH)/bin/arbol
+      - rm -f ~/.config/fish/completions/arbol.fish
+      - echo "Removed arbol and fish completion"
+  artifacts:
+    desc: Build release artifacts (run after tagging)
+    deps: [lint]
+    cmds:
+      - test -z "$(git status --porcelain)" || (echo "Working tree is dirty. Commit or stash changes before releasing." && exit 1)
+      - rm -rf {{.RELEASE_DIR}}
+      - mkdir -p {{.RELEASE_DIR}}
+      - CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "{{.LDFLAGS}}" -o {{.RELEASE_DIR}}/{{.APP_NAME}}-darwin-arm64 ./cmd/arbol
+  tag:
+    desc: Create and push git tag
+    cmds:
+      - git tag "{{.CLI_ARGS}}"
+      - git push origin "{{.CLI_ARGS}}"
+  sha:
+    desc: Generate SHA256 checksums for artifacts
+    silent: true
+    deps: [artifacts]
+    cmds:
+      - |
+        cd {{.RELEASE_DIR}}
+        for f in $(find . -maxdepth 1 -type f ! -name "*.sha256"); do
+          sha256sum "$f" | tee "$f.sha256"
+        done
+  release:
+    desc: Create GitHub release with artifacts
+    deps: [sha]
+    cmds:
+      - gh release create --generate-notes "{{.VERSION}}" {{.RELEASE_DIR}}/*
+  updates:
+    desc: Check for dependency updates
+    cmds:
+      - "go list -u -f '{{`{{if (and (not (or .Main .Indirect)) .Update)}}{{.Path}}: {{.Version}} -> {{.Update.Version}}{{end}}`}}' -m all 2> /dev/null"
