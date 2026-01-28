@@ -1,12 +1,14 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/oschrenk/arbol/internal/config"
 	"github.com/oschrenk/arbol/internal/git"
 	"github.com/spf13/cobra"
 )
@@ -16,7 +18,34 @@ var (
 	noHeaders   bool
 	pathWidth   int
 	branchWidth int
+	plainOutput bool
 )
+
+type jsonBranch struct {
+	Name     string `json:"name"`
+	Detached bool   `json:"detached"`
+}
+
+type jsonChanges struct {
+	Dirty      bool   `json:"dirty"`
+	Files      int    `json:"files"`
+	LastCommit string `json:"last_commit"`
+}
+
+type jsonRemote struct {
+	Ahead    int  `json:"ahead"`
+	Behind   int  `json:"behind"`
+	Diverged bool `json:"diverged"`
+	Tracking bool `json:"tracking"`
+}
+
+type jsonRepo struct {
+	ID      string       `json:"id"`
+	Path    string       `json:"path"`
+	Branch  *jsonBranch  `json:"branch,omitempty"`
+	Changes *jsonChanges `json:"changes,omitempty"`
+	Remote  *jsonRemote  `json:"remote,omitempty"`
+}
 
 // ANSI color codes
 const (
@@ -56,9 +85,17 @@ Examples:
 		repos := account.GetRepos(pathFilter)
 		if len(repos) == 0 {
 			if pathFilter != "" {
-				fmt.Printf("No repos found matching '%s' in account '%s'\n", pathFilter, accountName)
+				if plainOutput {
+					fmt.Printf("No repos found matching '%s' in account '%s'\n", pathFilter, accountName)
+				} else {
+					return fmt.Errorf("no repos found matching '%s' in account '%s'", pathFilter, accountName)
+				}
 			} else {
-				fmt.Printf("No repos configured in account '%s'\n", accountName)
+				if plainOutput {
+					fmt.Printf("No repos configured in account '%s'\n", accountName)
+				} else {
+					return fmt.Errorf("no repos configured in account '%s'", accountName)
+				}
 			}
 			return nil
 		}
@@ -70,38 +107,97 @@ Examples:
 			return pathI < pathJ
 		})
 
-		// Fixed column widths (pathWidth and branchWidth come from flags)
-		const workWidth = 5
-		const remoteWidth = 8
-		const ageWidth = 6
-
-		// Print header
-		if !noHeaders {
-			fmt.Printf("%-*s  %-*s  %-*s  %-*s  %-*s  %s\n",
-				pathWidth, "PATH",
-				branchWidth, "BRANCH",
-				workWidth, "WORK",
-				remoteWidth, "REMOTE",
-				ageWidth, "AGE",
-				"COMMENTS")
+		if plainOutput {
+			return printPlainStatus(repos)
 		}
-
-		for _, repo := range repos {
-			displayPath := repo.Path + "." + repo.Name
-			printRepoStatus(displayPath, repo.FullPath, pathWidth, branchWidth, workWidth, remoteWidth, ageWidth)
-		}
-
-		return nil
+		return printJSONStatus(repos)
 	},
 	ValidArgsFunction: completeRepoPath,
 }
 
 func init() {
-	statusCmd.Flags().BoolVar(&noColor, "no-color", false, "Disable colored output")
-	statusCmd.Flags().BoolVar(&noHeaders, "no-headers", false, "Hide column headers")
-	statusCmd.Flags().IntVar(&pathWidth, "path-width", 30, "Width of PATH column")
-	statusCmd.Flags().IntVar(&branchWidth, "branch-width", 15, "Width of BRANCH column")
+	statusCmd.Flags().BoolVar(&plainOutput, "plain", false, "Show table output instead of JSON")
+	statusCmd.Flags().BoolVar(&noColor, "no-color", false, "Disable colored output (only with --plain)")
+	statusCmd.Flags().BoolVar(&noHeaders, "no-headers", false, "Hide column headers (only with --plain)")
+	statusCmd.Flags().IntVar(&pathWidth, "path-width", 30, "Width of PATH column (only with --plain)")
+	statusCmd.Flags().IntVar(&branchWidth, "branch-width", 15, "Width of BRANCH column (only with --plain)")
 	rootCmd.AddCommand(statusCmd)
+}
+
+func printPlainStatus(repos []config.RepoWithPath) error {
+	const workWidth = 5
+	const remoteWidth = 8
+	const ageWidth = 6
+
+	if !noHeaders {
+		fmt.Printf("%-*s  %-*s  %-*s  %-*s  %-*s  %s\n",
+			pathWidth, "PATH",
+			branchWidth, "BRANCH",
+			workWidth, "WORK",
+			remoteWidth, "REMOTE",
+			ageWidth, "AGE",
+			"COMMENTS")
+	}
+
+	for _, repo := range repos {
+		displayPath := repo.Path + "." + repo.Name
+		printRepoStatus(displayPath, repo.FullPath, pathWidth, branchWidth, workWidth, remoteWidth, ageWidth)
+	}
+	return nil
+}
+
+func printJSONStatus(repos []config.RepoWithPath) error {
+	var results []jsonRepo
+
+	for _, repo := range repos {
+		displayPath := repo.Path + "." + repo.Name
+		entry := jsonRepo{
+			ID:   displayPath,
+			Path: repo.FullPath,
+		}
+
+		if !git.Exists(repo.FullPath) {
+			results = append(results, entry)
+			continue
+		}
+
+		status, err := git.Status(repo.FullPath)
+		if err != nil {
+			results = append(results, entry)
+			continue
+		}
+
+		entry.Branch = &jsonBranch{
+			Name:     status.Branch,
+			Detached: status.IsDetached,
+		}
+
+		lastCommit := ""
+		if !status.LastCommitTime.IsZero() {
+			lastCommit = status.LastCommitTime.Format(time.RFC3339)
+		}
+		entry.Changes = &jsonChanges{
+			Dirty:      status.IsDirty,
+			Files:      status.DirtyFiles,
+			LastCommit: lastCommit,
+		}
+
+		entry.Remote = &jsonRemote{
+			Ahead:    status.Ahead,
+			Behind:   status.Behind,
+			Diverged: status.Ahead > 0 || status.Behind > 0,
+			Tracking: !status.NoTracking,
+		}
+
+		results = append(results, entry)
+	}
+
+	output, err := json.MarshalIndent(results, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(output))
+	return nil
 }
 
 func printRepoStatus(displayPath, fullPath string, pathWidth, branchWidth, workWidth, remoteWidth, ageWidth int) {

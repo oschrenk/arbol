@@ -1,12 +1,12 @@
 # arbol
 
-Managing git repositories (across multiple machines) using declarative TOML configuration.
+Managing git repositories using declarative TOML configuration and JSON output
 
 ## Features
 
+- **JSON by default** - Pipe `arbol status` directly into `jq` for scripting
 - **Declarative config** - Define all your repositories in a single TOML file
-- **Tree structure** - Organize repos in paths that map to filesystem directories
-- **Multiple accounts** - Use different profiles for different machines (home, work-laptop, etc.)
+- **Multiple accounts** - Use different profiles for different machines (home, work, etc.)
 - **Smart status** - See branch, dirty files, and sync state with remote at a glance
 - **Shell completion** - Tab-complete repository paths in Fish shell
 
@@ -67,6 +67,21 @@ arbol sync
 arbol status
 ```
 
+Output is JSON by default, ready for `jq`:
+
+```bash
+$ arbol status | jq '.[0]'
+{
+  "id": "work.backend.api",
+  "path": "/home/user/Projects/work/backend/api",
+  "branch": { "name": "main", "detached": false },
+  "changes": { "dirty": false, "files": 0, "last_commit": "2025-01-15T10:30:00Z" },
+  "remote": { "ahead": 0, "behind": 0, "diverged": false, "tracking": true }
+}
+```
+
+Use `--plain` for a human-readable table.
+
 ## Commands
 
 ### `arbol sync [path]`
@@ -84,25 +99,47 @@ arbol sync --fetch            # Also fetch updates for existing repos
 
 ### `arbol status [path]`
 
-Show status of repositories in a table format.
+Show status of repositories. Outputs JSON by default for easy scripting and piping to tools like `jq`.
 
 ```bash
-arbol status                  # Status of all repos
-arbol status personal         # Status of repos under personal
+arbol status                  # JSON output (default)
+arbol status personal         # Filter repos under personal
+arbol status --plain          # Table output
+arbol status | jq '.[] | select(.changes.dirty)'  # Filter dirty repos
 ```
 
-**Output columns:**
-- **PATH** - Repository path in config
-- **BRANCH** - Current branch (cyan if detached HEAD)
-- **WORK** - Working tree status: green checkmark if clean, yellow dot with count if dirty
-- **REMOTE** - Sync with remote: arrows show commits ahead/behind
-- **COMMENTS** - Additional context (dirty file count, diverged, etc.)
+**JSON schema:**
+
+Each entry in the output array has the following structure. The `branch`, `changes`, and `remote` fields are omitted for repos that are not cloned or have errors.
+
+```json
+{
+  "id": "work.backend.api",
+  "path": "/home/user/Projects/work/backend/api",
+  "branch": {
+    "name": "main",
+    "detached": false
+  },
+  "changes": {
+    "dirty": true,
+    "files": 3,
+    "last_commit": "2025-01-15T10:30:00Z"
+  },
+  "remote": {
+    "ahead": 2,
+    "behind": 0,
+    "diverged": true,
+    "tracking": true
+  }
+}
+```
 
 **Flags:**
-- `--no-color` - Disable colored output
-- `--no-headers` - Hide column headers
-- `--path-width N` - Width of PATH column (default: 30)
-- `--branch-width N` - Width of BRANCH column (default: 15)
+- `--plain` - Show table output instead of JSON
+- `--no-color` - Disable colored output (only with `--plain`)
+- `--no-headers` - Hide column headers (only with `--plain`)
+- `--path-width N` - Width of PATH column, default: 30 (only with `--plain`)
+- `--branch-width N` - Width of BRANCH column, default: 15 (only with `--plain`)
 
 ### `arbol init`
 
@@ -193,16 +230,7 @@ repos.work.backend = [
 
 Use with: `arbol sync --account work-laptop`
 
-## Status Output Example
-
-```
-PATH                            BRANCH           WORK   REMOTE    COMMENTS
-work.backend.api                main             ✔      ✔
-work.backend.worker             feature/auth     ● 3    ↑2        3 dirty files, 2 unpushed commits
-personal.dotfiles               main             ✔      ↓5        5 commits behind origin
-personal.golang.arbol           main             ✔      ↓2 ↑1     diverged
-external.archived               a]b5c2d          ✔      ✔         detached HEAD
-```
+See [EXAMPLES.md](EXAMPLES.md) for more `jq` recipes.
 
 ## License
 

@@ -30,7 +30,7 @@ import (
 // RepoStatus represents the status of a git repository
 type RepoStatus struct {
 	Branch         string
-	IsDetached     bool      // true if HEAD is detached (Branch will be short hash)
+	IsDetached     bool // true if HEAD is detached (Branch will be short hash)
 	IsDirty        bool
 	DirtyFiles     int
 	Behind         int       // commits current branch is behind origin
