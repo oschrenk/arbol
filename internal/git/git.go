@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/transport"
@@ -28,13 +29,14 @@ import (
 
 // RepoStatus represents the status of a git repository
 type RepoStatus struct {
-	Branch     string
-	IsDetached bool // true if HEAD is detached (Branch will be short hash)
-	IsDirty    bool
-	DirtyFiles int
-	Behind     int  // commits current branch is behind origin
-	Ahead      int  // commits current branch is ahead of origin (unpushed)
-	NoTracking bool // true if no remote tracking branch
+	Branch         string
+	IsDetached     bool      // true if HEAD is detached (Branch will be short hash)
+	IsDirty        bool
+	DirtyFiles     int
+	Behind         int       // commits current branch is behind origin
+	Ahead          int       // commits current branch is ahead of origin (unpushed)
+	NoTracking     bool      // true if no remote tracking branch
+	LastCommitTime time.Time // time of the most recent commit
 }
 
 // Clone clones a git repository to the specified path
@@ -120,7 +122,24 @@ func Status(path string) (*RepoStatus, error) {
 		result.Ahead, result.Behind, result.NoTracking = getAheadBehind(path, result.Branch)
 	}
 
+	// Get last commit time
+	result.LastCommitTime = getLastCommitTime(path)
+
 	return result, nil
+}
+
+// getLastCommitTime returns the time of the most recent commit
+func getLastCommitTime(repoPath string) time.Time {
+	// Use %ct for committer date as Unix timestamp (faster to parse)
+	output, err := gitCommand(repoPath, "log", "-1", "--format=%ct")
+	if err != nil {
+		return time.Time{}
+	}
+	timestamp, err := strconv.ParseInt(strings.TrimSpace(output), 10, 64)
+	if err != nil {
+		return time.Time{}
+	}
+	return time.Unix(timestamp, 0)
 }
 
 // gitCommand runs a git command and returns stdout

@@ -5,6 +5,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/oschrenk/arbol/internal/git"
 	"github.com/spf13/cobra"
@@ -72,20 +73,22 @@ Examples:
 		// Fixed column widths (pathWidth and branchWidth come from flags)
 		const workWidth = 5
 		const remoteWidth = 8
+		const ageWidth = 6
 
 		// Print header
 		if !noHeaders {
-			fmt.Printf("%-*s  %-*s  %-*s  %-*s  %s\n",
+			fmt.Printf("%-*s  %-*s  %-*s  %-*s  %-*s  %s\n",
 				pathWidth, "PATH",
 				branchWidth, "BRANCH",
 				workWidth, "WORK",
 				remoteWidth, "REMOTE",
+				ageWidth, "AGE",
 				"COMMENTS")
 		}
 
 		for _, repo := range repos {
 			displayPath := repo.Path + "." + repo.Name
-			printRepoStatus(displayPath, repo.FullPath, pathWidth, branchWidth, workWidth, remoteWidth)
+			printRepoStatus(displayPath, repo.FullPath, pathWidth, branchWidth, workWidth, remoteWidth, ageWidth)
 		}
 
 		return nil
@@ -101,7 +104,7 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 }
 
-func printRepoStatus(displayPath, fullPath string, pathWidth, branchWidth, workWidth, remoteWidth int) {
+func printRepoStatus(displayPath, fullPath string, pathWidth, branchWidth, workWidth, remoteWidth, ageWidth int) {
 	// Truncate path if needed
 	pathText := truncate(displayPath, pathWidth)
 
@@ -111,8 +114,9 @@ func printRepoStatus(displayPath, fullPath string, pathWidth, branchWidth, workW
 		branch := padRight(colorize(colorGray, "—"), branchWidth)
 		work := padRight(colorize(colorGray, "—"), workWidth)
 		remote := padRight(colorize(colorGray, "—"), remoteWidth)
+		age := padRight(colorize(colorGray, "—"), ageWidth)
 		comment := colorize(colorGray, "not cloned")
-		fmt.Printf("%s  %s  %s  %s  %s\n", path, branch, work, remote, comment)
+		fmt.Printf("%s  %s  %s  %s  %s  %s\n", path, branch, work, remote, age, comment)
 		return
 	}
 
@@ -122,8 +126,9 @@ func printRepoStatus(displayPath, fullPath string, pathWidth, branchWidth, workW
 		branch := padRight(colorize(colorGray, "?"), branchWidth)
 		work := padRight(colorize(colorGray, "?"), workWidth)
 		remote := padRight(colorize(colorGray, "?"), remoteWidth)
+		age := padRight(colorize(colorGray, "?"), ageWidth)
 		comment := colorize(colorGray, err.Error())
-		fmt.Printf("%s  %s  %s  %s  %s\n", path, branch, work, remote, comment)
+		fmt.Printf("%s  %s  %s  %s  %s  %s\n", path, branch, work, remote, age, comment)
 		return
 	}
 
@@ -192,9 +197,46 @@ func printRepoStatus(displayPath, fullPath string, pathWidth, branchWidth, workW
 		comments = append([]string{fmt.Sprintf("%d dirty files", status.DirtyFiles)}, comments...)
 	}
 
+	// Format age
+	var age string
+	if status.LastCommitTime.IsZero() {
+		age = padRight(colorize(colorGray, "?"), ageWidth)
+	} else {
+		ageText := formatRelativeTime(status.LastCommitTime)
+		age = padRight(colorize(colorGray, ageText), ageWidth)
+	}
+
 	comment := colorize(colorGray, strings.Join(comments, ", "))
 
-	fmt.Printf("%s  %s  %s  %s  %s\n", path, branch, work, remote, comment)
+	fmt.Printf("%s  %s  %s  %s  %s  %s\n", path, branch, work, remote, age, comment)
+}
+
+// formatRelativeTime formats a time as a relative age string
+func formatRelativeTime(t time.Time) string {
+	duration := time.Since(t)
+
+	switch {
+	case duration < time.Minute:
+		return "now"
+	case duration < time.Hour:
+		mins := int(duration.Minutes())
+		return fmt.Sprintf("%dm", mins)
+	case duration < 24*time.Hour:
+		hours := int(duration.Hours())
+		return fmt.Sprintf("%dh", hours)
+	case duration < 7*24*time.Hour:
+		days := int(duration.Hours() / 24)
+		return fmt.Sprintf("%dd", days)
+	case duration < 30*24*time.Hour:
+		weeks := int(duration.Hours() / 24 / 7)
+		return fmt.Sprintf("%dw", weeks)
+	case duration < 365*24*time.Hour:
+		months := int(duration.Hours() / 24 / 30)
+		return fmt.Sprintf("%dmo", months)
+	default:
+		years := int(duration.Hours() / 24 / 365)
+		return fmt.Sprintf("%dy", years)
+	}
 }
 
 // truncate shortens a string to maxLen, adding ellipsis if truncated
