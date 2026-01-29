@@ -16,9 +16,8 @@
 - `task install` - Install to `$GOPATH/bin/` and fish completion
 - `task uninstall` - Remove from `$GOPATH/bin/` and fish completion
 - `task artifacts` - Build release artifacts to `.release/`
-- `task tag` - Create and push git tag from `VERSION`
 - `task sha` - Generate SHA256 checksums
-- `task release` - Create GitHub release with artifacts
+- `task release -- v0.2.0` - Lint, dirty check, tag, build, and create GitHub release
 - `task updates` - Check for dependency updates
 
 ## Version Management
@@ -32,10 +31,8 @@ Version is derived from git tags via `git describe --tags`. The version is embed
 
 ## Release Process
 
-1. `task tag -- v0.1.0` - create and push git tag
-2. `task release` - build artifacts and create GitHub release
-3. `task sha` - print checksums for homebrew formula
-4. Update [homebrew-made](https://github.com/oschrenk/homebrew-made) formula
+1. `task release -- v0.2.0` - lint, dirty check, tag, build artifacts, create GitHub release
+2. Update [homebrew-made](https://github.com/oschrenk/homebrew-made) formula
 
 ## Fish Completion
 
