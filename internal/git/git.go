@@ -15,6 +15,7 @@
 package git
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,7 +54,62 @@ func Clone(url, path string) error {
 		URL:  url,
 		Auth: auth,
 	})
-	return err
+	if err != nil {
+		return friendlyCloneError(url, err)
+	}
+	return nil
+}
+
+// friendlyCloneError translates low-level go-git/network errors into messages
+// that point at the likely cause (e.g. not connected to a VPN).
+func friendlyCloneError(url string, err error) error {
+	msg := err.Error()
+
+	switch {
+	// Network-level connection failures. These typically mean the host is
+	// unreachable - often because a required VPN isn't connected.
+	case strings.Contains(msg, "bad file descriptor"),
+		strings.Contains(msg, "connection refused"),
+		strings.Contains(msg, "no route to host"),
+		strings.Contains(msg, "network is unreachable"),
+		strings.Contains(msg, "i/o timeout"),
+		strings.Contains(msg, "connection timed out"),
+		strings.Contains(msg, "no such host"):
+		return fmt.Errorf("cannot reach %s (are you connected to the VPN?): %w", hostFromURL(url), err)
+
+	// Authentication failures.
+	case strings.Contains(msg, "auth"),
+		strings.Contains(msg, "permission denied"),
+		strings.Contains(msg, "handshake failed"),
+		strings.Contains(msg, "unable to authenticate"):
+		return fmt.Errorf("authentication failed for %s (is your SSH key/agent set up?): %w", hostFromURL(url), err)
+
+	default:
+		return err
+	}
+}
+
+// hostFromURL extracts a human-readable host from a git URL, supporting both
+// scp-like syntax (git@host:path) and URL syntax (ssh://host/path). Falls back
+// to the full URL if no host can be parsed.
+func hostFromURL(url string) string {
+	// scp-like: git@host:path
+	if at := strings.Index(url, "@"); at != -1 {
+		rest := url[at+1:]
+		if colon := strings.IndexAny(rest, ":/"); colon != -1 {
+			return rest[:colon]
+		}
+		return rest
+	}
+	// scheme://host/path
+	if idx := strings.Index(url, "://"); idx != -1 {
+		rest := url[idx+3:]
+		if slash := strings.IndexAny(rest, ":/"); slash != -1 {
+			return rest[:slash]
+		}
+		return rest
+	}
+	return url
 }
 
 // getSSHAuth returns SSH authentication, trying agent first then key files
