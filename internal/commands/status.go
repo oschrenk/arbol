@@ -14,12 +14,24 @@ import (
 )
 
 var (
-	noColor     bool
-	noHeaders   bool
-	pathWidth   int
-	branchWidth int
-	plainOutput bool
+	noColor      bool
+	noHeaders    bool
+	pathWidth    int
+	branchWidth  int
+	plainOutput  bool
+	localDirty   bool
+	remoteDirty  bool
 )
+
+// repoState pairs a configured repo with its resolved git status.
+// status is nil when the repo is not cloned (exists == false) or when
+// git.Status returned an error (err != nil).
+type repoState struct {
+	repo   config.RepoWithPath
+	exists bool
+	status *git.RepoStatus
+	err    error
+}
 
 type jsonBranch struct {
 	Name     string `json:"name"`
@@ -107,10 +119,14 @@ Examples:
 			return pathI < pathJ
 		})
 
+		// Resolve git status once per repo, then optionally filter to dirty.
+		states := gatherStates(repos)
+		states = filterStates(states, localDirty, remoteDirty)
+
 		if plainOutput {
-			return printPlainStatus(repos)
+			return printPlainStatus(states)
 		}
-		return printJSONStatus(repos)
+		return printJSONStatus(states)
 	},
 	ValidArgsFunction: completeRepoPath,
 }
@@ -121,10 +137,61 @@ func init() {
 	statusCmd.Flags().BoolVar(&noHeaders, "no-headers", false, "Hide column headers (only with --plain)")
 	statusCmd.Flags().IntVar(&pathWidth, "path-width", 30, "Width of PATH column (only with --plain)")
 	statusCmd.Flags().IntVar(&branchWidth, "branch-width", 15, "Width of BRANCH column (only with --plain)")
+	statusCmd.Flags().BoolVar(&localDirty, "local-dirty", false, "Only show repos with uncommitted local changes")
+	statusCmd.Flags().BoolVar(&remoteDirty, "remote-dirty", false, "Only show repos out of sync with their remote (ahead, behind, or no tracking branch)")
 	rootCmd.AddCommand(statusCmd)
 }
 
-func printPlainStatus(repos []config.RepoWithPath) error {
+// gatherStates resolves the git status of each repo exactly once.
+func gatherStates(repos []config.RepoWithPath) []repoState {
+	states := make([]repoState, 0, len(repos))
+	for _, repo := range repos {
+		st := repoState{repo: repo}
+		if git.Exists(repo.FullPath) {
+			st.exists = true
+			if status, err := git.Status(repo.FullPath); err != nil {
+				st.err = err
+			} else {
+				st.status = status
+			}
+		}
+		states = append(states, st)
+	}
+	return states
+}
+
+// isLocalDirty reports whether the working tree has uncommitted changes.
+func isLocalDirty(s *git.RepoStatus) bool {
+	return s.IsDirty
+}
+
+// isRemoteDirty reports whether the branch is out of sync with its remote:
+// ahead, behind, or without a tracking branch.
+func isRemoteDirty(s *git.RepoStatus) bool {
+	return s.NoTracking || s.Ahead > 0 || s.Behind > 0
+}
+
+// filterStates keeps only dirty repos when --local-dirty and/or --remote-dirty are set.
+// When both flags are set the match is a union (local OR remote dirty).
+// Repos without a resolved status (not cloned or errored) are excluded while
+// filtering, since their dirtiness can't be determined.
+func filterStates(states []repoState, local, remote bool) []repoState {
+	if !local && !remote {
+		return states
+	}
+	filtered := make([]repoState, 0, len(states))
+	for _, st := range states {
+		if st.status == nil {
+			continue
+		}
+		if (local && isLocalDirty(st.status)) || (remote && isRemoteDirty(st.status)) {
+			filtered = append(filtered, st)
+		}
+	}
+	return filtered
+}
+
+func printPlainStatus(states []repoState) error {
 	const workWidth = 5
 	const remoteWidth = 8
 	const ageWidth = 6
@@ -139,33 +206,29 @@ func printPlainStatus(repos []config.RepoWithPath) error {
 			"COMMENTS")
 	}
 
-	for _, repo := range repos {
-		displayPath := repo.Path + "." + repo.Name
-		printRepoStatus(displayPath, repo.FullPath, pathWidth, branchWidth, workWidth, remoteWidth, ageWidth)
+	for _, st := range states {
+		displayPath := st.repo.Path + "." + st.repo.Name
+		printRepoStatus(st, displayPath, pathWidth, branchWidth, workWidth, remoteWidth, ageWidth)
 	}
 	return nil
 }
 
-func printJSONStatus(repos []config.RepoWithPath) error {
+func printJSONStatus(states []repoState) error {
 	var results []jsonRepo
 
-	for _, repo := range repos {
-		displayPath := repo.Path + "." + repo.Name
+	for _, st := range states {
+		displayPath := st.repo.Path + "." + st.repo.Name
 		entry := jsonRepo{
 			ID:   displayPath,
-			Path: repo.FullPath,
+			Path: st.repo.FullPath,
 		}
 
-		if !git.Exists(repo.FullPath) {
+		if !st.exists || st.err != nil || st.status == nil {
 			results = append(results, entry)
 			continue
 		}
 
-		status, err := git.Status(repo.FullPath)
-		if err != nil {
-			results = append(results, entry)
-			continue
-		}
+		status := st.status
 
 		entry.Branch = &jsonBranch{
 			Name:     status.Branch,
@@ -200,12 +263,12 @@ func printJSONStatus(repos []config.RepoWithPath) error {
 	return nil
 }
 
-func printRepoStatus(displayPath, fullPath string, pathWidth, branchWidth, workWidth, remoteWidth, ageWidth int) {
+func printRepoStatus(st repoState, displayPath string, pathWidth, branchWidth, workWidth, remoteWidth, ageWidth int) {
 	// Truncate path if needed
 	pathText := truncate(displayPath, pathWidth)
 
 	// Check if repo exists
-	if !git.Exists(fullPath) {
+	if !st.exists {
 		path := padRight(pathText, pathWidth)
 		branch := padRight(colorize(colorGray, "—"), branchWidth)
 		work := padRight(colorize(colorGray, "—"), workWidth)
@@ -216,17 +279,18 @@ func printRepoStatus(displayPath, fullPath string, pathWidth, branchWidth, workW
 		return
 	}
 
-	status, err := git.Status(fullPath)
-	if err != nil {
+	if st.err != nil || st.status == nil {
 		path := padRight(pathText, pathWidth)
 		branch := padRight(colorize(colorGray, "?"), branchWidth)
 		work := padRight(colorize(colorGray, "?"), workWidth)
 		remote := padRight(colorize(colorGray, "?"), remoteWidth)
 		age := padRight(colorize(colorGray, "?"), ageWidth)
-		comment := colorize(colorGray, err.Error())
+		comment := colorize(colorGray, st.err.Error())
 		fmt.Printf("%s  %s  %s  %s  %s  %s\n", path, branch, work, remote, age, comment)
 		return
 	}
+
+	status := st.status
 
 	// Format path
 	path := padRight(pathText, pathWidth)
