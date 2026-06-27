@@ -229,19 +229,13 @@ func (c *Config) GetAccount(name string) (*Account, error) {
 	return account, nil
 }
 
-// GetRepos returns all repos for an account, optionally filtered by path prefix
+// GetRepos returns all repos for an account, optionally filtered by a dotted
+// path. See matchesFilter for the matching rules.
 func (a *Account) GetRepos(pathFilter string) []RepoWithPath {
 	var result []RepoWithPath
 	rootPath := ExpandPath(a.Root)
 
 	for path, repos := range a.Repos {
-		// Check if path matches filter
-		if pathFilter != "" {
-			if !strings.HasPrefix(path, pathFilter) && !strings.HasPrefix(pathFilter, path) {
-				continue
-			}
-		}
-
 		// Convert dotted path to directory path
 		dirPath := strings.ReplaceAll(path, ".", string(filepath.Separator))
 
@@ -251,20 +245,8 @@ func (a *Account) GetRepos(pathFilter string) []RepoWithPath {
 				name = repo.Name
 			}
 
-			// Check if filtering for a specific repo
-			if pathFilter != "" && strings.Contains(pathFilter, ".") {
-				fullRepoPath := path + "." + name
-				if !strings.HasPrefix(fullRepoPath, pathFilter) && fullRepoPath != pathFilter {
-					// Skip if the filter is more specific and doesn't match
-					parts := strings.Split(pathFilter, ".")
-					filterPath := strings.Join(parts[:len(parts)-1], ".")
-					filterName := parts[len(parts)-1]
-					if filterPath != path || filterName != name {
-						if len(parts) > len(strings.Split(path, "."))+1 {
-							continue
-						}
-					}
-				}
+			if !matchesFilter(path, name, pathFilter) {
+				continue
 			}
 
 			fullPath := filepath.Join(rootPath, dirPath, name)
@@ -278,6 +260,28 @@ func (a *Account) GetRepos(pathFilter string) []RepoWithPath {
 	}
 
 	return result
+}
+
+// matchesFilter reports whether a repo named name in container directory
+// (a dotted path like "timewax") should be included for the given dotted
+// pathFilter.
+//
+// An empty filter matches everything. Otherwise a repo matches when the filter:
+//   - names the repo exactly ("timewax.backend"),
+//   - names the repo's container directory ("timewax"), or
+//   - names an ancestor directory of the container ("timewax" for a repo in
+//     "timewax.golang").
+//
+// Matching is segment-aware, so "timewax.backend" matches only the backend
+// repo, not siblings like "timewax.all-node-apps".
+func matchesFilter(container, name, filter string) bool {
+	if filter == "" {
+		return true
+	}
+	full := container + "." + name
+	return full == filter ||
+		container == filter ||
+		strings.HasPrefix(container, filter+".")
 }
 
 // AccountNames returns a list of all account names
