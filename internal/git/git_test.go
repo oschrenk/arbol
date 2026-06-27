@@ -26,8 +26,8 @@ func TestFriendlyCloneError(t *testing.T) {
 
 	network := errors.New("dial tcp 35.241.184.25:22: connect: bad file descriptor")
 	got := friendlyCloneError(url, network)
-	if !strings.Contains(got.Error(), "VPN") || !strings.Contains(got.Error(), "github.com") {
-		t.Errorf("expected VPN/host hint, got %q", got.Error())
+	if !strings.Contains(got.Error(), "cannot reach") || !strings.Contains(got.Error(), "github.com") {
+		t.Errorf("expected unreachable-host/host hint, got %q", got.Error())
 	}
 	if !errors.Is(got, network) {
 		t.Error("expected wrapped error to preserve original via errors.Is")

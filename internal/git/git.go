@@ -61,13 +61,13 @@ func Clone(url, path string) error {
 }
 
 // friendlyCloneError translates low-level go-git/network errors into messages
-// that point at the likely cause (e.g. not connected to a VPN).
+// that point at the likely cause (an unreachable host or failed auth).
 func friendlyCloneError(url string, err error) error {
 	msg := err.Error()
 
 	switch {
 	// Network-level connection failures. These typically mean the host is
-	// unreachable - often because a required VPN isn't connected.
+	// unreachable - check your network connection.
 	case strings.Contains(msg, "bad file descriptor"),
 		strings.Contains(msg, "connection refused"),
 		strings.Contains(msg, "no route to host"),
@@ -75,7 +75,7 @@ func friendlyCloneError(url string, err error) error {
 		strings.Contains(msg, "i/o timeout"),
 		strings.Contains(msg, "connection timed out"),
 		strings.Contains(msg, "no such host"):
-		return fmt.Errorf("cannot reach %s (are you connected to the VPN?): %w", hostFromURL(url), err)
+		return fmt.Errorf("cannot reach %s (check your network connection): %w", hostFromURL(url), err)
 
 	// Authentication failures.
 	case strings.Contains(msg, "auth"),
