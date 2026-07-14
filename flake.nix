@@ -34,7 +34,7 @@
 
           # Regenerate after changing go.mod/go.sum: set to lib.fakeHash,
           # run `nix build`, then paste the expected hash from the error.
-          vendorHash = "sha256-JqRy1EXyoYol2mbVA5mr/nS/hIuLdArPCWC8s6OjfFo=";
+          vendorHash = "sha256-iVXtBc6ig6AbJOSagYDmiaAUpSDK82GDuhv/5B+b0N8=";
 
           subPackages = [ "cmd/arbol" ];
 
