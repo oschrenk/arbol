@@ -16,7 +16,7 @@
     { self, nixpkgs }:
     let
       # Bump this when tagging a release; commit + date are stamped from the flake.
-      version = "0.2.1";
+      version = "0.2.2";
 
       systems = [
         "aarch64-darwin"
