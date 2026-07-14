@@ -31,6 +31,8 @@ jobs:
           # Create at https://app.cachix.org/personal-auth-tokens,
           # add as the CACHIX_AUTH_TOKEN repository secret.
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+          # PRs build/pull to validate, but only main + tags populate the cache.
+          skipPush: ${{ github.event_name == 'pull_request' }}
 
       # Paths built here are pushed to the cache automatically by cachix-action.
       - run: nix build .#arbol --print-build-logs
