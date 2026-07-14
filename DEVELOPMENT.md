@@ -31,8 +31,11 @@ Version is derived from git tags via `git describe --tags`. The version is embed
 
 ## Release Process
 
-1. `task release -- v0.2.0` - lint, dirty check, tag, build artifacts, create GitHub release
-2. Update [homebrew-made](https://github.com/oschrenk/homebrew-made) formula
+1. Bump `version` in `flake.nix` to the new version; commit and push.
+2. `task release -- v0.3.0` - lint, dirty check, tag, build artifacts, create GitHub release.
+   Pushing the `v*` tag also triggers `.github/workflows/build.yml`, which builds every
+   system and pushes the binaries to the Cachix cache.
+3. Update [homebrew-made](https://github.com/oschrenk/homebrew-made) formula
 
 ## Fish Completion
 
