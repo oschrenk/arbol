@@ -53,6 +53,13 @@ tasks:
       - echo "Removed arbol and fish completion"
   artifacts:
     desc: Build release artifacts
+    vars:
+      # Recomputed at task-run time so a release build picks up the tag created
+      # earlier in the same `task release` run (the global VERSION is captured at
+      # startup, before `tag`, and would otherwise stamp the previous version).
+      VERSION:
+        sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+      LDFLAGS: -s -w -X github.com/oschrenk/arbol/internal/commands.Version={{.VERSION}} -X github.com/oschrenk/arbol/internal/commands.Commit={{.COMMIT}} -X github.com/oschrenk/arbol/internal/commands.BuildDate={{.BUILD_DATE}}
     cmds:
       - rm -rf {{.RELEASE_DIR}}
       - mkdir -p {{.RELEASE_DIR}}
