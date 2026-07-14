@@ -1,19 +1,89 @@
 {
+  description = "Arbol - manage git repositories across machines via declarative TOML";
+
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
 
+  # Offer prebuilt binaries from the Cachix cache so `nix profile install`
+  # downloads instead of compiling. Consumers are prompted to trust these.
+  nixConfig = {
+    extra-substituters = [ "https://oschrenk.cachix.org" ];
+    extra-trusted-public-keys = [
+      "oschrenk.cachix.org-1:3JOMfkq2vFiLw4UsCVwzu8kWFBkuS/3DD5AojcO9pks="
+    ];
+  };
+
   outputs =
-    { nixpkgs, ... }:
+    { self, nixpkgs }:
+    let
+      # Bump this when tagging a release; commit + date are stamped from the flake.
+      version = "0.2.0";
+
+      systems = [
+        "aarch64-darwin"
+        "aarch64-linux"
+        "x86_64-linux"
+      ];
+      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+    in
     {
-      devShells.aarch64-darwin.default =
-        let
-          pkgs = nixpkgs.legacyPackages.aarch64-darwin;
-        in
-        pkgs.mkShell {
+      packages = forAllSystems (pkgs: rec {
+        arbol = pkgs.buildGoModule {
+          pname = "arbol";
+          inherit version;
+          src = self;
+
+          # Regenerate after changing go.mod/go.sum: set to lib.fakeHash,
+          # run `nix build`, then paste the expected hash from the error.
+          vendorHash = "sha256-JqRy1EXyoYol2mbVA5mr/nS/hIuLdArPCWC8s6OjfFo=";
+
+          subPackages = [ "cmd/arbol" ];
+
+          ldflags =
+            let
+              p = "github.com/oschrenk/arbol/internal/commands";
+            in
+            [
+              "-s"
+              "-w"
+              "-X ${p}.Version=${version}"
+              "-X ${p}.Commit=${self.shortRev or self.dirtyShortRev or "unknown"}"
+              "-X ${p}.BuildDate=${self.lastModifiedDate}"
+            ];
+
+          # Generate + install the fish completion the taskfile ships.
+          nativeBuildInputs = [ pkgs.installShellFiles ];
+          postInstall = ''
+            installShellCompletion --cmd arbol \
+              --bash <($out/bin/arbol completion bash) \
+              --zsh <($out/bin/arbol completion zsh) \
+              --fish <($out/bin/arbol completion fish)
+          '';
+
+          meta = {
+            description = "Manage git repositories across machines via declarative TOML";
+            homepage = "https://github.com/oschrenk/arbol";
+            mainProgram = "arbol";
+          };
+        };
+        default = arbol;
+      });
+
+      apps = forAllSystems (pkgs: rec {
+        arbol = {
+          type = "app";
+          program = "${self.packages.${pkgs.stdenv.hostPlatform.system}.arbol}/bin/arbol";
+        };
+        default = arbol;
+      });
+
+      devShells = forAllSystems (pkgs: {
+        default = pkgs.mkShell {
           packages = with pkgs; [
             go # go, language
             golangci-lint # go, linter runner
             gopls # go, lsp
           ];
         };
+      });
     };
 }
