@@ -8,11 +8,11 @@ import (
 
 func TestHostFromURL(t *testing.T) {
 	cases := map[string]string{
-		"git@github.com:oschrenk/arbol.git":     "github.com",
-		"git@bitbucket.example.com:team/repo":   "bitbucket.example.com",
+		"git@github.com:oschrenk/arbol.git":      "github.com",
+		"git@bitbucket.example.com:team/repo":    "bitbucket.example.com",
 		"ssh://git@github.com:22/oschrenk/arbol": "github.com",
-		"https://github.com/oschrenk/arbol.git": "github.com",
-		"not-a-url":                             "not-a-url",
+		"https://github.com/oschrenk/arbol.git":  "github.com",
+		"not-a-url":                              "not-a-url",
 	}
 	for url, want := range cases {
 		if got := hostFromURL(url); got != want {
