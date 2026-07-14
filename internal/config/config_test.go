@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestMatchesFilter(t *testing.T) {
 	cases := []struct {
@@ -39,5 +42,43 @@ func TestMatchesFilter(t *testing.T) {
 					c.container, c.repo, c.filter, got, c.want)
 			}
 		})
+	}
+}
+
+// AccountNames and RepoPaths back shell completion, which ranges over maps
+// (random iteration order). Both must return sorted, deterministic output.
+
+func TestAccountNamesSorted(t *testing.T) {
+	cfg := &Config{
+		Accounts: map[string]*Account{
+			"zeta":  {},
+			"alpha": {},
+			"mid":   {},
+		},
+	}
+	got := cfg.AccountNames()
+	want := []string{"alpha", "mid", "zeta"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("AccountNames() = %v, want %v", got, want)
+	}
+}
+
+func TestRepoPathsSorted(t *testing.T) {
+	acct := &Account{
+		Repos: map[string][]Repo{
+			"work":     {{URL: "https://example.com/backend.git", Name: "backend"}, {URL: "https://example.com/api.git", Name: "api"}},
+			"personal": {{URL: "https://example.com/dotfiles.git", Name: "dotfiles"}},
+		},
+	}
+	got := acct.RepoPaths()
+	want := []string{
+		"personal",
+		"personal.dotfiles",
+		"work",
+		"work.api",
+		"work.backend",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("RepoPaths() = %v, want %v", got, want)
 	}
 }

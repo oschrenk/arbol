@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
@@ -290,6 +291,7 @@ func (c *Config) AccountNames() []string {
 	for name := range c.Accounts {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }
 
@@ -317,6 +319,7 @@ func (a *Account) RepoPaths() []string {
 		}
 	}
 
+	sort.Strings(paths)
 	return paths
 }
 
