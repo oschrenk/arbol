@@ -54,11 +54,12 @@ tasks:
   artifacts:
     desc: Build release artifacts
     vars:
-      # Recomputed at task-run time so a release build picks up the tag created
-      # earlier in the same `task release` run (the global VERSION is captured at
-      # startup, before `tag`, and would otherwise stamp the previous version).
-      VERSION:
+      # `release` passes the tag being cut as VERSION; standalone builds fall back
+      # to git describe. This avoids stamping a stale version (the global VERSION is
+      # captured at startup, before `tag` runs, so it can't be used for releases).
+      VERSION_DEFAULT:
         sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+      VERSION: '{{.VERSION | default .VERSION_DEFAULT}}'
       LDFLAGS: -s -w -X github.com/oschrenk/arbol/internal/commands.Version={{.VERSION}} -X github.com/oschrenk/arbol/internal/commands.Commit={{.COMMIT}} -X github.com/oschrenk/arbol/internal/commands.BuildDate={{.BUILD_DATE}}
     cmds:
       - rm -rf {{.RELEASE_DIR}}
@@ -72,7 +73,9 @@ tasks:
   sha:
     desc: Generate SHA256 checksums for artifacts
     silent: true
-    deps: [artifacts]
+    deps:
+      - task: artifacts
+        vars: {VERSION: "{{.VERSION}}"}
     cmds:
       - |
         cd {{.RELEASE_DIR}}
@@ -88,6 +91,7 @@ tasks:
       - task: tag
         vars: {CLI_ARGS: "{{.CLI_ARGS}}"}
       - task: sha
+        vars: {VERSION: "{{.CLI_ARGS}}"}
       - gh release create --generate-notes "{{.CLI_ARGS}}" {{.RELEASE_DIR}}/*
   updates:
     desc: Check for dependency updates
