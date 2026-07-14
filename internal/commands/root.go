@@ -24,10 +24,7 @@ and use accounts as machine profiles.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		// Skip config loading for these commands
 		switch cmd.Name() {
-		case "init", "completion", "version", "__complete-path", "__complete-account":
-			return nil
-		}
-		if cmd.Parent() != nil && cmd.Parent().Name() == "completion" {
+		case "init", "completion", "version":
 			return nil
 		}
 
@@ -72,13 +69,4 @@ func getAccount() (*config.Account, string, error) {
 		return account, accountFlag, nil
 	}
 	return cfg.DefaultAccount()
-}
-
-// loadConfigForCompletion loads config for completion commands
-// These commands skip PersistentPreRunE so need to load config themselves
-func loadConfigForCompletion() (*config.Config, error) {
-	if cfg != nil {
-		return cfg, nil
-	}
-	return config.Load()
 }

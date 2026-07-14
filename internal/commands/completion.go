@@ -1,38 +1,10 @@
 package commands
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 )
-
-const fishCompletion = `# Fish completion for arbol
-
-# Disable file completions for arbol
-complete -c arbol -f
-
-# Commands
-complete -c arbol -n "__fish_use_subcommand" -a "sync" -d "Clone missing repositories"
-complete -c arbol -n "__fish_use_subcommand" -a "status" -d "Show status of repositories"
-complete -c arbol -n "__fish_use_subcommand" -a "init" -d "Create a starter configuration file"
-complete -c arbol -n "__fish_use_subcommand" -a "version" -d "Print version information"
-complete -c arbol -n "__fish_use_subcommand" -a "completion" -d "Generate shell completion scripts"
-complete -c arbol -n "__fish_use_subcommand" -a "help" -d "Help about any command"
-
-# Global flags
-complete -c arbol -s a -l account -d "Use specific account instead of default" -xa "(arbol __complete-account)"
-complete -c arbol -s h -l help -d "Show help"
-
-# Completion subcommand
-complete -c arbol -n "__fish_seen_subcommand_from completion" -a "bash zsh fish powershell"
-
-# Sync flags
-complete -c arbol -n "__fish_seen_subcommand_from sync" -l fetch -d "Fetch updates for existing repos"
-
-# Path completions for sync and status
-complete -c arbol -n "__fish_seen_subcommand_from sync status" -xa "(arbol __complete-path (commandline -ct))"
-`
 
 var completionCmd = &cobra.Command{
 	Use:   "completion [bash|zsh|fish|powershell]",
@@ -70,6 +42,7 @@ PowerShell:
   PS> arbol completion powershell > arbol.ps1
   # and source this file from your PowerShell profile.
 `,
+	Hidden:                true,
 	DisableFlagsInUseLine: true,
 	ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
 	Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
@@ -80,7 +53,7 @@ PowerShell:
 		case "zsh":
 			cmd.Root().GenZshCompletion(os.Stdout)
 		case "fish":
-			fmt.Print(fishCompletion)
+			cmd.Root().GenFishCompletion(os.Stdout, true)
 		case "powershell":
 			cmd.Root().GenPowerShellCompletionWithDesc(os.Stdout)
 		}
