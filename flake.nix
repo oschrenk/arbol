@@ -15,8 +15,9 @@
   outputs =
     { self, nixpkgs }:
     let
-      # Bump this when tagging a release; commit + date are stamped from the flake.
-      version = "0.2.2";
+      # Single source of truth for the version: ./VERSION holds a bare semver
+      # (e.g. 0.2.2); the "v" prefix is added here and in the taskfile release flow.
+      version = "v${nixpkgs.lib.fileContents ./VERSION}";
 
       systems = [
         "aarch64-darwin"

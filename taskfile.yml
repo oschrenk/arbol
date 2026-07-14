@@ -83,16 +83,19 @@ tasks:
           sha256sum "$f" | tee "$f.sha256"
         done
   release:
-    desc: Create GitHub release with artifacts
+    desc: Create GitHub release (version comes from the VERSION file)
+    vars:
+      RELEASE_VERSION:
+        sh: echo "v$(cat VERSION)"
     cmds:
       - task: lint
       - test -z "$(git status --porcelain)" || (echo "Working tree is dirty. Commit or stash changes before releasing." && exit 1)
       - test "$(git rev-parse HEAD)" = "$(git rev-parse @{u})" || (echo "Unpushed commits. Push before releasing." && exit 1)
       - task: tag
-        vars: {CLI_ARGS: "{{.CLI_ARGS}}"}
+        vars: {CLI_ARGS: "{{.RELEASE_VERSION}}"}
       - task: sha
-        vars: {VERSION: "{{.CLI_ARGS}}"}
-      - gh release create --generate-notes "{{.CLI_ARGS}}" {{.RELEASE_DIR}}/*
+        vars: {VERSION: "{{.RELEASE_VERSION}}"}
+      - gh release create --generate-notes "{{.RELEASE_VERSION}}" {{.RELEASE_DIR}}/*
   updates:
     desc: Check for dependency updates
     cmds:

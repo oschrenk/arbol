@@ -31,10 +31,11 @@ Version is derived from git tags via `git describe --tags`. The version is embed
 
 ## Release Process
 
-1. Bump `version` in `flake.nix` to the new version; commit and push.
-2. `task release -- v0.3.0` - lint, dirty check, tag, build artifacts, create GitHub release.
-   Pushing the `v*` tag also triggers `.github/workflows/build.yml`, which builds every
-   system and pushes the binaries to the Cachix cache.
+1. Bump the [`VERSION`](VERSION) file (single source of truth: `flake.nix` and the
+   release both read it); commit and push.
+2. `task release` - lint, dirty check, tag `v<VERSION>`, build artifacts, create GitHub
+   release. Pushing the `v*` tag also triggers `.github/workflows/build.yml`, which builds
+   every system and pushes the binaries to the Cachix cache.
 3. Update [homebrew-made](https://github.com/oschrenk/homebrew-made) formula
 
 ## Fish Completion
@@ -45,6 +46,6 @@ Fish completion is generated via `arbol completion fish`. The script is embedded
 
 The repo is a flake. `nix run github:oschrenk/arbol`, `nix profile install github:oschrenk/arbol`, `nix build`, `nix develop` (dev shell). Use `task build` for the dev loop; Nix is for consuming/reproducible builds.
 
-- **vendorHash**: after changing `go.mod`/`go.sum`, set `vendorHash = nixpkgs.lib.fakeHash`, run `nix build`, paste the `got:` hash. Bump `version` in `flake.nix` on release.
+- **vendorHash**: after changing `go.mod`/`go.sum`, set `vendorHash = nixpkgs.lib.fakeHash`, run `nix build`, paste the `got:` hash. The version is read from the `VERSION` file (shared with the release flow).
 - **Cache**: CI (`.github/workflows/build.yml`) pushes prebuilt binaries to `oschrenk.cachix.org` on push/tag. Needs a `CACHIX_AUTH_TOKEN` repository secret ([Cachix personal token](https://app.cachix.org/personal-auth-tokens)). Pulling needs no token.
 - **First-time trust**: the flake's `nixConfig` (cache) needs one-time approval, which `direnv` can't answer (it hangs). Accept it once without opening a shell: `nix develop --command true`, answer `y` to the prompts (persisted to `~/.local/share/nix/trusted-settings.json`), then `direnv reload`.
