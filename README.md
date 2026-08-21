@@ -105,8 +105,30 @@ Show status of repositories. Outputs JSON by default for easy scripting and pipi
 arbol status                  # JSON output (default)
 arbol status personal         # Filter repos under personal
 arbol status --plain          # Table output
+arbol status --state dirty    # Only repos with uncommitted changes
+arbol status --state attention        # Anything not clean and in sync
+arbol status --plain --state dirty,ahead  # Dirty or unpushed
 arbol status | jq '.[] | select(.changes.dirty)'  # Filter dirty repos
 ```
+
+**States:**
+
+`--state` takes one or more states and shows repos matching *any* of them.
+It applies to both JSON and `--plain` output.
+
+| State | Meaning |
+| --- | --- |
+| `attention` | Any of the states below, i.e. not clean and in sync |
+| `dirty` | Uncommitted changes in the working tree |
+| `ahead` | Unpushed commits |
+| `behind` | Commits behind the upstream branch |
+| `diverged` | Both ahead and behind |
+| `detached` | Detached HEAD |
+| `missing` | Not cloned yet |
+| `no-upstream` | Branch has no upstream to compare against |
+
+Repos whose status cannot be read are always shown, since they cannot be
+classified.
 
 **JSON schema:**
 
@@ -135,6 +157,7 @@ Each entry in the output array has the following structure. The `branch`, `chang
 ```
 
 **Flags:**
+- `--state STATE,...` - Only show repos in any of these states (see above)
 - `--plain` - Show table output instead of JSON
 - `--no-color` - Disable colored output (only with `--plain`)
 - `--no-headers` - Hide column headers (only with `--plain`)
