@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -19,7 +20,48 @@ var (
 	pathWidth   int
 	branchWidth int
 	plainOutput bool
+	stateFilter []string
 )
+
+// Repository states accepted by --state. A repo matches the filter if it is in
+// any of the requested states (OR).
+const (
+	// stateAttention is a superstate expanding to every state below: anything
+	// that is not clean and in sync with its upstream.
+	stateAttention = "attention"
+
+	stateDirty      = "dirty"
+	stateAhead      = "ahead"
+	stateBehind     = "behind"
+	stateDiverged   = "diverged"
+	stateDetached   = "detached"
+	stateMissing    = "missing"
+	stateNoUpstream = "no-upstream"
+)
+
+var validStates = []string{
+	stateDirty,
+	stateAhead,
+	stateBehind,
+	stateDiverged,
+	stateDetached,
+	stateMissing,
+	stateNoUpstream,
+}
+
+// stateKeys is what --state accepts, i.e. the concrete states plus the
+// attention superstate.
+var stateKeys = append([]string{stateAttention}, validStates...)
+
+// repoState pairs a repo with its resolved git status, so the state filter and
+// the renderers work from a single snapshot instead of running git twice.
+type repoState struct {
+	displayPath string
+	fullPath    string
+	exists      bool
+	status      *git.RepoStatus
+	err         error
+}
 
 type jsonBranch struct {
 	Name     string `json:"name"`
@@ -66,10 +108,27 @@ var statusCmd = &cobra.Command{
 Without a path argument, shows status of all repos in the account.
 With a path, shows only repos under that path.
 
+--state narrows the output to repos in any of the given states:
+
+  attention    any of the states below, i.e. not clean and in sync
+  dirty        uncommitted changes in the working tree
+  ahead        unpushed commits
+  behind       commits behind the upstream branch
+  diverged     both ahead and behind
+  detached     detached HEAD
+  missing      not cloned yet
+  no-upstream  branch has no upstream to compare against
+
+Repos whose status cannot be read are always shown, since they cannot be
+classified.
+
 Examples:
-  arbol status                  # status of all repos
-  arbol status work.backend     # status of repos under work.backend
-  arbol status --account spare  # use specific account`,
+  arbol status                       # status of all repos
+  arbol status work.backend          # status of repos under work.backend
+  arbol status --account spare       # use specific account
+  arbol status --state dirty         # only repos with uncommitted changes
+  arbol status --state dirty,ahead   # dirty or unpushed
+  arbol status --state attention     # anything not clean and in sync`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		account, accountName, err := getAccount()
@@ -107,10 +166,20 @@ Examples:
 			return pathI < pathJ
 		})
 
-		if plainOutput {
-			return printPlainStatus(repos)
+		keys, err := parseStateFilter(stateFilter)
+		if err != nil {
+			return err
 		}
-		return printJSONStatus(repos)
+
+		states := collectStates(repos)
+		if len(keys) > 0 {
+			states = filterStates(states, keys)
+		}
+
+		if plainOutput {
+			return printPlainStatus(states)
+		}
+		return printJSONStatus(states)
 	},
 	ValidArgsFunction: completeRepoPath,
 }
@@ -121,10 +190,125 @@ func init() {
 	statusCmd.Flags().BoolVar(&noHeaders, "no-headers", false, "Hide column headers (only with --plain)")
 	statusCmd.Flags().IntVar(&pathWidth, "path-width", 30, "Width of PATH column (only with --plain)")
 	statusCmd.Flags().IntVar(&branchWidth, "branch-width", 15, "Width of BRANCH column (only with --plain)")
+	statusCmd.Flags().StringSliceVar(&stateFilter, "state", nil,
+		"Only show repos in any of these states: "+strings.Join(stateKeys, ", "))
+	_ = statusCmd.RegisterFlagCompletionFunc("state",
+		func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			return stateKeys, cobra.ShellCompDirectiveNoFileComp
+		})
 	rootCmd.AddCommand(statusCmd)
 }
 
-func printPlainStatus(repos []config.RepoWithPath) error {
+// parseStateFilter validates and normalizes the --state values.
+func parseStateFilter(values []string) ([]string, error) {
+	var keys []string
+	seen := make(map[string]bool)
+
+	for _, value := range values {
+		key := strings.ToLower(strings.TrimSpace(value))
+		if key == "" {
+			continue
+		}
+		if !slices.Contains(stateKeys, key) {
+			return nil, fmt.Errorf("unknown state '%s' (valid states: %s)", value, strings.Join(stateKeys, ", "))
+		}
+
+		// attention is a superstate: expand it to every concrete state.
+		expanded := []string{key}
+		if key == stateAttention {
+			expanded = validStates
+		}
+		for _, k := range expanded {
+			if !seen[k] {
+				seen[k] = true
+				keys = append(keys, k)
+			}
+		}
+	}
+
+	return keys, nil
+}
+
+// collectStates resolves the git status of each repo once.
+func collectStates(repos []config.RepoWithPath) []repoState {
+	states := make([]repoState, 0, len(repos))
+
+	for _, repo := range repos {
+		state := repoState{
+			displayPath: repo.Path + "." + repo.Name,
+			fullPath:    repo.FullPath,
+			exists:      git.Exists(repo.FullPath),
+		}
+		if state.exists {
+			state.status, state.err = git.Status(repo.FullPath)
+		}
+		states = append(states, state)
+	}
+
+	return states
+}
+
+func filterStates(states []repoState, keys []string) []repoState {
+	filtered := make([]repoState, 0, len(states))
+	for _, state := range states {
+		if state.matches(keys) {
+			filtered = append(filtered, state)
+		}
+	}
+	return filtered
+}
+
+// matches reports whether the repo is in any of the requested states.
+func (s repoState) matches(keys []string) bool {
+	// A repo whose status could not be read cannot be classified. Show it
+	// rather than silently dropping a repo that may well need attention.
+	if s.exists && s.err != nil {
+		return true
+	}
+
+	for _, key := range keys {
+		if key == stateMissing {
+			if !s.exists {
+				return true
+			}
+			continue
+		}
+		if s.status == nil {
+			continue
+		}
+
+		switch key {
+		case stateDirty:
+			if s.status.IsDirty {
+				return true
+			}
+		case stateAhead:
+			if s.status.Ahead > 0 {
+				return true
+			}
+		case stateBehind:
+			if s.status.Behind > 0 {
+				return true
+			}
+		case stateDiverged:
+			if s.status.Ahead > 0 && s.status.Behind > 0 {
+				return true
+			}
+		case stateDetached:
+			if s.status.IsDetached {
+				return true
+			}
+		case stateNoUpstream:
+			if s.status.NoTracking {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func printPlainStatus(states []repoState) error {
 	const workWidth = 5
 	const remoteWidth = 8
 	const ageWidth = 6
@@ -139,33 +323,26 @@ func printPlainStatus(repos []config.RepoWithPath) error {
 			"COMMENTS")
 	}
 
-	for _, repo := range repos {
-		displayPath := repo.Path + "." + repo.Name
-		printRepoStatus(displayPath, repo.FullPath, pathWidth, branchWidth, workWidth, remoteWidth, ageWidth)
+	for _, state := range states {
+		printRepoStatus(state, pathWidth, branchWidth, workWidth, remoteWidth, ageWidth)
 	}
 	return nil
 }
 
-func printJSONStatus(repos []config.RepoWithPath) error {
-	var results []jsonRepo
+func printJSONStatus(states []repoState) error {
+	results := []jsonRepo{}
 
-	for _, repo := range repos {
-		displayPath := repo.Path + "." + repo.Name
+	for _, state := range states {
 		entry := jsonRepo{
-			ID:   displayPath,
-			Path: repo.FullPath,
+			ID:   state.displayPath,
+			Path: state.fullPath,
 		}
 
-		if !git.Exists(repo.FullPath) {
+		if !state.exists || state.err != nil {
 			results = append(results, entry)
 			continue
 		}
-
-		status, err := git.Status(repo.FullPath)
-		if err != nil {
-			results = append(results, entry)
-			continue
-		}
+		status := state.status
 
 		entry.Branch = &jsonBranch{
 			Name:     status.Branch,
@@ -200,12 +377,12 @@ func printJSONStatus(repos []config.RepoWithPath) error {
 	return nil
 }
 
-func printRepoStatus(displayPath, fullPath string, pathWidth, branchWidth, workWidth, remoteWidth, ageWidth int) {
+func printRepoStatus(state repoState, pathWidth, branchWidth, workWidth, remoteWidth, ageWidth int) {
 	// Truncate path if needed
-	pathText := truncate(displayPath, pathWidth)
+	pathText := truncate(state.displayPath, pathWidth)
 
 	// Check if repo exists
-	if !git.Exists(fullPath) {
+	if !state.exists {
 		path := padRight(pathText, pathWidth)
 		branch := padRight(colorize(colorGray, "—"), branchWidth)
 		work := padRight(colorize(colorGray, "—"), workWidth)
@@ -216,7 +393,7 @@ func printRepoStatus(displayPath, fullPath string, pathWidth, branchWidth, workW
 		return
 	}
 
-	status, err := git.Status(fullPath)
+	status, err := state.status, state.err
 	if err != nil {
 		path := padRight(pathText, pathWidth)
 		branch := padRight(colorize(colorGray, "?"), branchWidth)
