@@ -30,6 +30,49 @@ This installs the binary to `$GOPATH/bin/arbol` and Fish completions to `~/.conf
 go build -o arbol ./cmd/arbol
 ```
 
+### home-manager
+
+The flake ships a home-manager module that installs arbol and generates
+`~/.config/arbol/config.toml`, so the repo tree is declared in Nix rather than
+hand-edited.
+
+```nix
+{
+  inputs.arbol.url = "github:oschrenk/arbol";
+
+  # in your home-manager configuration:
+  imports = [ inputs.arbol.homeModules.arbol ];
+
+  programs.arbol = {
+    enable = true;
+
+    accounts.default = {
+      default = true;
+      root    = "~/Projects";
+
+      repos = {
+        tools = [
+          "git@github.com:oschrenk/arbol.git"
+          "git@github.com:oschrenk/bump.git"
+        ];
+
+        "work.backend" = [
+          "git@github.com:company/api.git"
+          { url = "git@github.com:company/worker.git"; name = "worker-svc"; }
+        ];
+      };
+    };
+  };
+}
+```
+
+A repo is a URL string, or an attrset when the directory name should differ
+from the one derived from the URL. Repos are keyed by the dotted path below
+`root` — the same path `arbol status` and `arbol sync` take as a filter — and
+the module inserts the `"/"` marker described under
+[Nested Paths](#nested-paths) on its own when a path holds both repos and
+subpaths.
+
 ## Quick Start
 
 1. Create a starter config:
@@ -187,6 +230,9 @@ arbol completion fish > ~/.config/fish/completions/arbol.fish
 ## Configuration
 
 Config location: `$XDG_CONFIG_HOME/arbol/config.toml` (defaults to `~/.config/arbol/config.toml`)
+
+On Nix, generate this file from `programs.arbol` instead of writing it by hand
+— see [home-manager](#home-manager).
 
 ### Basic Structure
 

@@ -77,6 +77,11 @@
         default = arbol;
       });
 
+      homeModules = rec {
+        arbol = import ./nix/home-manager.nix self;
+        default = arbol;
+      };
+
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           packages = with pkgs; [

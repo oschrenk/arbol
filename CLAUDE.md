@@ -20,6 +20,9 @@ arbol/
 │   │   └── config.go           # TOML parsing, account/repo structs, validation
 │   └── git/
 │       └── git.go              # Git operations (clone via go-git, status via CLI)
+├── nix/
+│   └── home-manager.nix        # home-manager module, generates config.toml
+├── flake.nix                   # Package, devShell, homeModules.arbol
 ├── taskfile.yml                # Build tasks (task build, test, install, etc.)
 ├── SPEC.md                     # Full specification
 ├── DEVELOPMENT.md              # Development setup
